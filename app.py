@@ -5,6 +5,8 @@ from geopy.distance import geodesic
 import folium
 from streamlit_folium import st_folium
 import time
+import os
+import sqlite3
 
 # --- Configuration ---
 st.set_page_config(page_title="Open House Optimizer", layout="wide")
@@ -25,7 +27,7 @@ def get_coordinates(address):
     try:
         # Rate limit protection
         time.sleep(1.1) 
-        location = geolocator.geocode(address)
+        location = geolocator.geocode(address, timeout=10)
         if location:
             return location.latitude, location.longitude
         return None
@@ -96,11 +98,54 @@ st.markdown("Paste addresses, optimize your route, and go!")
 with st.expander("📝 Configuration", expanded=True):
     home_address = st.text_input("Home Address (Start/End)", "1600 Amphitheatre Parkway, Mountain View, CA")
     
+    # --- Database Integration ---
+    DB_FILE = "redfin_favorites.db"
+    
+    def get_synced_addresses():
+        if os.path.exists(DB_FILE):
+            try:
+                conn = sqlite3.connect(DB_FILE)
+                c = conn.cursor()
+                c.execute("SELECT address FROM addresses")
+                addrs = [row[0] for row in c.fetchall()]
+                conn.close()
+                return addrs
+            except Exception as e:
+                st.error(f"Error reading database: {e}")
+                return []
+        return []
+
+    def clear_synced_addresses():
+        if os.path.exists(DB_FILE):
+             try:
+                conn = sqlite3.connect(DB_FILE)
+                c = conn.cursor()
+                c.execute("DELETE FROM addresses")
+                conn.commit()
+                conn.close()
+                st.success("Synced addresses cleared!")
+                time.sleep(1) # brief pause to show success
+                st.rerun()
+             except Exception as e:
+                st.error(f"Error clearing database: {e}")
+
+    synced_addresses = get_synced_addresses()
+    default_text = ""
+    if synced_addresses:
+        default_text = "\n".join(synced_addresses)
+        st.info(f"Loaded {len(synced_addresses)} addresses from Chrome Extension.")
+    
+    # Text Area
     address_input = st.text_area(
         "List of Open House Addresses (one per line)",
+        value=default_text,
         height=150,
         placeholder="123 Main St, Mountain View, CA\n456 Oak Ave, Mountain View, CA\n..."
     )
+    
+    if synced_addresses:
+        if st.button("🗑️ Clear Synced Data"):
+            clear_synced_addresses()
 
     # Placeholder for API Key (not used in this logic, but requested)
     api_key = st.text_input("Google Maps API Key (Optional - for future use)", type="password")
